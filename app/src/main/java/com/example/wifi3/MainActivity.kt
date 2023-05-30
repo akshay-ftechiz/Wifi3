@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkInfo
 import android.net.wifi.WifiManager
+import android.os.AsyncTask
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -23,8 +24,10 @@ import java.io.IOException
 import java.io.OutputStreamWriter
 import java.io.PrintWriter
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.UnknownHostException
+import java.util.concurrent.ThreadPoolExecutor
 
 class MainActivity : AppCompatActivity() {
 
@@ -37,7 +40,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var arduinoConnectionSwitch: SwitchCompat
 
     companion object {
-        const val SERVER_IP = "10.1.10.134"
+        const val SERVER_IP = "192.168.174.147"
         const val SERVER_PORT = 80
     }
 
@@ -106,24 +109,43 @@ class MainActivity : AppCompatActivity() {
     private fun sendData() {
         val message = sendDataEditText.text.toString()
         showProgressBar()
-        try {
-            if (socket != null) {
-                val out = PrintWriter(
-                    BufferedWriter(OutputStreamWriter(socket!!.getOutputStream())), true
-                )
-                out.println(message)
-                out.close()
-                sendDataEditText.setText("")
-            } else {
-                checkSwitches()
+        object :AsyncTask<Void,Void,Void>()
+        {
+            override fun doInBackground(vararg params: Void?): Void? {
+                try {
+                    if (socket != null) {
+                        val out = PrintWriter(
+                            BufferedWriter(OutputStreamWriter(socket!!.getOutputStream())), true
+                        )
+                        out.println(message)
+                        out.flush()
+//                        out.close()
+                        runOnUiThread {
+                            sendDataEditText.setText("")
+                        }
+                    } else {
+                        runOnUiThread {
+                            checkSwitches()
+
+                        }
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        checkSwitches()
+                        Snackbar.make(view, "Error: $e", Snackbar.LENGTH_LONG).show()
+                        e.printStackTrace()
+                    }
+                } finally {
+                    runOnUiThread {
+                        hideProgressBar()
+                    }
+                }
+                return null ;
             }
-        } catch (e: Exception) {
-            checkSwitches()
-            Snackbar.make(view, "Error: $e", Snackbar.LENGTH_LONG).show()
-            e.printStackTrace()
-        } finally {
-            hideProgressBar()
-        }
+
+        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR)
+        Log.d("@connection",""+socket?.isConnected+"closed"+socket?.isClosed)
+
     }
     private fun connectToArduino(): Boolean {
         if (socket == null) {
@@ -150,6 +172,7 @@ class MainActivity : AppCompatActivity() {
             thread = null
             if (socket != null) {
                 socket!!.close()
+                socket = null
                 Snackbar.make(view, "Disconnected Socket", Snackbar.LENGTH_LONG).show()
             } else {
                 Snackbar.make(view, "Socket was not connected properly", Snackbar.LENGTH_LONG)
@@ -186,10 +209,15 @@ class MainActivity : AppCompatActivity() {
             try {
                 val serverAddress: InetAddress = InetAddress.getByName(SERVER_IP)
                 Log.e("TAG", "Attempting socket connection...")
-                socket = Socket(serverAddress, SERVER_PORT)
-                Log.e("TAG", "Socket connection established.")
+//                socket = Socket(serverAddress, SERVER_PORT)
+
+
+                // Open the socket and connect to it
+                socket = Socket()
+                socket!!.connect(InetSocketAddress(serverAddress, SERVER_PORT))
+                Log.e("@scoket", "Socket connection established."+ socket?.isClosed+"connected"+socket?.isConnected)
                 runOnUiThread {
-                    silentlySwitchArduino(false)
+                    silentlySwitchArduino(true)
                     Snackbar.make(view, "Connected to socket", Snackbar.LENGTH_LONG).show()
                 }
             } catch (e1: UnknownHostException) {
